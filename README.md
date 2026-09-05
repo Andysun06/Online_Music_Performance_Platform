@@ -26,8 +26,8 @@
 - ▶️ **自动演奏 / 假弹**：
   - 自动播放内置乐曲，琴键自动跳动
   - **按键跟随（假弹）模式**：不会弹琴？随便敲键盘，乐曲就跟着你的敲击节奏推进，人人都能"弹"一首歌
-- 📥 **MIDI 文件导入**：把任意 `.mid` 导入「自动演奏」面板即可演奏——自动跟随曲速变化、跳过鼓轨、整体移调适配钢琴音域
-- 🎵 **内置乐曲**：黄霄云《星辰大海》、《左手指月》（萨顶顶词曲/黄霄云翻唱版）、致爱丽丝、欢乐颂、卡农、小星星
+- 📥 **MIDI / EOP 文件导入**：把任意 `.mid` 或人人钢琴 `.eop` 文件导入「自动演奏」面板即可演奏——自动跟随曲速变化、跳过鼓轨、整体移调适配钢琴音域
+- 🎵 **内置乐曲**：黄霄云《星辰大海》、《左手指月》（萨顶顶词曲/黄霄云翻唱，EveryonePiano 社区转录精确版）、致爱丽丝、欢乐颂、卡农、小星星
 
 ## 🚀 快速开始
 
@@ -98,7 +98,22 @@ node scripts/tiny-server.js 8613
 - **自动演奏**：顶栏「自动演奏」→ 选曲 → 两种模式：
   - *自动播放*：按时值自动演奏整首乐曲
   - *按键跟随（假弹）*：开始后**随便敲键盘**，乐曲会按你敲击的节奏逐音推进 —— 把键盘当成节拍器，人人都能"演奏"一首《星辰大海》
-- **导入 MIDI**：点「导入 MIDI」选择本地 `.mid` 文件（导入后出现在曲目下拉框中）。支持 format 0/1、曲速变化（tempo 事件）、running status、SMPTE 时基；自动跳过 GM 鼓轨（第 10 通道）、自动整体移调适配 88 键音域。导入后「自动播放」和「按键跟随」都可用
+- **导入 MIDI / EOP**：点「导入 MIDI」选择本地 `.mid` 或 `.eop` 文件（导入后出现在曲目下拉框中）。MIDI 支持 format 0/1、曲速变化（tempo 事件）、running status、SMPTE 时基；EOP 支持 v200/v201/v301 布局。自动跳过 GM 鼓轨（第 10 通道）、自动整体移调适配 88 键音域。导入后「自动播放」和「按键跟随」都可用
+
+## 🔍 曲谱与 MIDI 资源是怎么找到的
+
+本项目的准确曲谱与文件来源（均为公开渠道，按可靠程度排序）：
+
+| 来源 | 地址 | 说明 |
+| --- | --- | --- |
+| **EveryonePiano 曲库数据库** | [hsdllcw/everyonepiano-music-database](https://github.com/hsdllcw/everyonepiano-music-database) | GitHub 开源仓库，收录人人钢琴网 **4.5 万+ 社区转录 .eop 文件**（免费直接下载），内置的《星辰大海》《左手指月》精确数据即出自这里 |
+| **EOP 文件格式规范** | [emizuki/eop2midi](https://github.com/emizuki/eop2midi) | 逆向出的 EOP（v200/v201/v301）二进制格式规范与 Go 转换器，本站的 .eop 导入功能据此用 JS 重新实现 |
+| **人人钢琴网** | [everyonepiano.cn](https://www.everyonepiano.cn/) | 中文流行钢琴曲库最全的站点；.eopn/.eopm 免登录下载，**.mid 需注册免费账号**（如《星辰大海》编号 12650） |
+| **MuseScore** | [musescore.com](https://musescore.com/) | 社区五线谱（如[星辰大海钢琴版](https://musescore.com/user/11147046/scores/6644403)），可导出 MIDI，需账号且部分格式限 Pro |
+| **BitMidi** | [bitmidi.com](https://bitmidi.com/) | 免费直链 MIDI 库，英文/动漫曲丰富，中文流行较少 |
+
+> 找不到现成 MIDI 时也可以像本站早期版本一样从简谱/五线谱图片人工转谱，但准确度依赖转谱者；
+> 社区转录的 .eop/.mid 由大量玩家演奏验证过，节奏与音符可靠得多。
 
 ## 📁 目录结构
 
@@ -110,8 +125,9 @@ node scripts/tiny-server.js 8613
 │   ├── audio-engine.js         # Web Audio 演奏引擎（复音/踏板/混响）
 │   ├── keyboard-map.js         # 键位方案与重绑
 │   ├── piano-ui.js             # 88 键渲染与指针交互
-│   ├── effects.js              # 粒子特效
-│   ├── midi-import.js          # 标准 MIDI 文件解析（SMF）
+│   ├── effects.js              # 粒子特效（梦幻风）
+│   ├── midi-import.js          # 标准 MIDI（SMF）与 EveryonePiano EOP 解析
+│   ├── pop-songs-data.js       # 流行歌曲精确曲谱数据（自动生成）
 │   ├── songs.js                # 内置乐曲曲谱
 │   ├── sequencer.js            # 录音 / 调度器 / 自动演奏
 │   └── main.js                 # 装配与全局交互
@@ -139,7 +155,7 @@ node scripts/tiny-server.js 8613
 
 本项目代码以 [MIT License](LICENSE) 开源。
 
-钢琴采样来自 [gleitz/midi-js-soundfonts](https://github.com/gleitz/midi-js-soundfonts)（MusyngKite 与 FluidR3_GM 音色库），感谢原作者与采样制作者的无私分享；曲谱为便于键盘演示的简化改编，仅作学习演示用途，版权归原作者所有。
+钢琴采样来自 [gleitz/midi-js-soundfonts](https://github.com/gleitz/midi-js-soundfonts)（MusyngKite 与 FluidR3_GM 音色库）；EOP 文件格式解析参考 [emizuki/eop2midi](https://github.com/emizuki/eop2midi) 的逆向规范；内置流行曲谱数据转录自 [hsdllcw/everyonepiano-music-database](https://github.com/hsdllcw/everyonepiano-music-database) 收录的社区编配。感谢原作者与采样/转录制作者的无私分享；曲谱数据仅作学习演示用途，歌曲版权归原作者所有。
 
 ---
 

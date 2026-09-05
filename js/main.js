@@ -415,8 +415,27 @@
 
   function importMidiData(buffer, filename) {
     try {
-      var res = window.MidiImport.parse(buffer);
-      var name = filename.replace(/\.(midi?|MIDI?)$/, '');
+      var head = new Uint8Array(buffer.slice(0, 16));
+      var isEop = false;
+      // EOP 文件：首 13 字节与 32 字节 XOR 掩码异或后为 "EveryonePiano"
+      var EOP_XOR = [0x71, 0x72, 0x73, 0x74, 0x72, 0x73, 0x74, 0x75, 0x73, 0x74, 0x75, 0x76, 0x74];
+      var MAGIC = 'EveryonePiano';
+      if (head.length >= 13) {
+        isEop = true;
+        for (var mi = 0; mi < 13; mi++) {
+          if (String.fromCharCode(head[mi] ^ EOP_XOR[mi]) !== MAGIC.charAt(mi)) { isEop = false; break; }
+        }
+      }
+
+      var res, name;
+      if (isEop) {
+        res = window.MidiImport.parseEop(buffer);
+        name = (res.title || filename.replace(/\.(eop)$/i, ''));
+        if (res.author && res.author !== 'EOPer') name = res.author + ' - ' + name;
+      } else {
+        res = window.MidiImport.parse(buffer);
+        name = filename.replace(/\.(midi?|MIDI?)$/, '');
+      }
       var dup = 1;
       var id = 'midi-import';
       while (allSongs().some(function (s) { return s.id === id; })) id = 'midi-import-' + (++dup);
@@ -437,13 +456,13 @@
       }
     } catch (err) {
       console.error(err);
-      toast('MIDI 解析失败：' + err.message);
+      toast('解析失败：' + err.message);
     }
   }
 
   var midiFileInput = document.createElement('input');
   midiFileInput.type = 'file';
-  midiFileInput.accept = '.mid,.midi,audio/midi';
+  midiFileInput.accept = '.mid,.midi,.eop,audio/midi';
   midiFileInput.style.display = 'none';
   document.body.appendChild(midiFileInput);
   midiFileInput.addEventListener('change', function () {
@@ -610,6 +629,27 @@
     ui.welcome.classList.add('gone');
     started = true;
     loadTimbre(settings.timbre, false);
+
+    // 开场特效自检：先来一串光束与光球，立刻确认特效是否工作
+    setTimeout(function () {
+      if (!settings.fxOn) {
+        toast('按键粒子特效当前已关闭，可在「设置 → 显示与特效」中开启', true);
+        return;
+      }
+      var marks = [];
+      var i = 0;
+      PianoUI.keyEls.forEach(function (el, midi) {
+        if (i++ % 9 === 0) marks.push({ midi: midi, el: el });
+      });
+      marks.forEach(function (m, idx) {
+        setTimeout(function () {
+          var rect = m.el.getBoundingClientRect();
+          if (rect.width) {
+            FX.keyPress(m.midi, rect.left + rect.width / 2, rect.top + 2, PianoUI.isBlack(m.midi));
+          }
+        }, idx * 75);
+      });
+    }, 900);
   });
 
   /* ---------------- Web MIDI 键盘（Chrome/Edge，插上即用） ---------------- */

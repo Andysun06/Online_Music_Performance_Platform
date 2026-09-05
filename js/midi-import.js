@@ -118,17 +118,27 @@
     }
 
     /* ---- 排序、过滤、按时间分组合并为事件 ---- */
+    var out = spansToEvents(notes, tickToMs, shift, '移调后没有音符落在钢琴音域内');
+    out.format = format;
+    out.trackCount = ntrk;
+    out.octaveShift = shift;
+    out.smpte = smpteMsPerTick !== null;
+    return out;
+  }
+
+  /** 把 {n, s(ms), e, v} 音符跨度序列转成事件（含过滤与和弦合并），返回事件与统计 */
+  function spansToEvents(notes, toMs, shift, emptyMsg) {
     var msNotes = [];
     var dropped = 0;
     for (var j = 0; j < notes.length; j++) {
       var nt = notes[j];
-      var n2 = nt.n + shift * 12;
+      var n2 = nt.n + (shift || 0) * 12;
       if (n2 < LOW || n2 > HIGH) { dropped++; continue; }
-      var st = tickToMs(nt.s);
-      var et = Math.max(tickToMs(nt.e), st + 30);
-      msNotes.push({ n: n2, s: st, e: et, v: 0.2 + 0.8 * (nt.v / 127) });
+      var st = toMs(nt.s);
+      var et = Math.max(toMs(nt.e), st + 30);
+      msNotes.push({ n: n2, s: st, e: et, v: nt.v == null ? 0.8 : Math.max(0.15, Math.min(1, nt.v)) });
     }
-    if (!msNotes.length) throw new Error('移调后没有音符落在钢琴音域内');
+    if (!msNotes.length) throw new Error(emptyMsg || '没有音符落在钢琴音域内');
     msNotes.sort(function (a, b) { return a.s - b.s || a.n - b.n; });
 
     var events = [];
@@ -154,13 +164,229 @@
       events: events,
       noteCount: msNotes.length,
       droppedCount: dropped,
-      duration: duration,
-      format: format,
-      trackCount: ntrk,
-      octaveShift: shift,
-      smpte: smpteMsPerTick !== null
+      duration: duration
     };
   }
 
-  window.MidiImport = { parse: parse };
+  /* ============================================================
+   * Everyone Piano .eop 文件解析（格式依据 eop2midi 项目逆向规范）
+   *  - 32 字节循环 XOR 掩码混淆，解码后头部 13 字节为 "EveryonePiano"
+   *  - v200/v201/v301 三种布局；事件为 16 字节记录（毫秒时间戳 + 键盘码）
+   *  - 键盘码经映射表转为 MIDI 音高
+   * ============================================================ */
+
+  var EOP_XOR = [
+    0x71, 0x72, 0x73, 0x74, 0x72, 0x73, 0x74, 0x75,
+    0x73, 0x74, 0x75, 0x76, 0x74, 0x75, 0x76, 0x77,
+    0x75, 0x76, 0x77, 0x78, 0x76, 0x77, 0x78, 0x79,
+    0x77, 0x78, 0x79, 0x7a, 0x78, 0x79, 0x7a, 0x7b
+  ];
+
+  function eopDecode(raw) {
+    var out = new Uint8Array(raw.length);
+    for (var i = 0; i < raw.length; i++) out[i] = raw[i] ^ EOP_XOR[i % 32];
+    return out;
+  }
+
+  function eopText(bytes) {
+    var seg = bytes;
+    var nul = seg.indexOf(0);
+    if (nul >= 0) seg = seg.subarray(0, nul);
+    if (!seg.length) return '';
+    try { return new TextDecoder('utf-8', { fatal: true }).decode(seg); }
+    catch (e) { try { return new TextDecoder('gbk').decode(seg); } catch (e2) { return ''; } }
+  }
+
+  function eopParseKeyMappings(dv, u8, sectionStart, sectionSize, recordSize) {
+    if (sectionSize < 28 || (sectionSize - 28) % recordSize !== 0) throw new Error('mapping section 尺寸不合法');
+    var records = (sectionSize - 28) / recordSize;
+    var map = {};
+    for (var i = 0; i < records; i++) {
+      var off = sectionStart + 28 + i * recordSize;
+      var scanCode = u8[off + 4];
+      if (map[scanCode] !== undefined) throw new Error('mapping 重复键盘码');
+      var action = dv.getUint16(off + 32, true);
+      var note = dv.getUint16(off + 34, true);
+      if (action === 0x0090 && note <= 127) map[scanCode] = note;
+    }
+    return map;
+  }
+
+  function eopParseLengthPrefixed(dv, u8, start, end, recordSize) {
+    var sections = [];
+    var cursor = start;
+    while (cursor < end) {
+      if (end - cursor < 4) throw new Error('mapping 容器被截断');
+      var sectionSize = dv.getUint32(cursor, true);
+      var sectionStart = cursor + 4;
+      if (sectionSize < 28 || sectionSize > end - sectionStart) throw new Error('mapping section 越界');
+      sections.push(eopParseKeyMappings(dv, u8, sectionStart, sectionSize, recordSize));
+      cursor = sectionStart + sectionSize;
+    }
+    if (!sections.length) throw new Error('mapping 容器为空');
+    return sections;
+  }
+
+  function eopMergeSections(sections) {
+    var merged = {};
+    for (var s = 0; s < sections.length; s++) {
+      var sec = sections[s];
+      for (var code in sec) {
+        if (merged[code] === undefined) merged[code] = sec[code];
+      }
+    }
+    return merged;
+  }
+
+  function eopParseEvents(dv, u8, start, count, mapping, velocities) {
+    var notes = []; // {n, s, e, v}  单位毫秒
+    var open = {};
+    var dropped = 0;
+    var prev = -1;
+    for (var i = 0; i < count; i++) {
+      var off = start + i * 16;
+      var ts = dv.getFloat64(off, true);
+      if (!(ts >= 0) || ts < prev) throw new Error('事件时间轴非法');
+      prev = ts;
+      var status = u8[off + 8];
+      if (status !== 0x80 && status !== 0x90) throw new Error('事件状态非法 0x' + status.toString(16));
+      var scanCode = u8[off + 9];
+      var note = mapping[scanCode];
+      if (note === undefined) { dropped++; continue; }   // 宽容模式：跳过未映射键盘码
+      var vel = u8[off + 10] / 127;
+      if (status === 0x90 && velocities && velocities[scanCode]) vel = velocities[scanCode] / 127;
+      var key = scanCode * 128 + note;
+      if (status === 0x90) {
+        if (open[key]) notes.push({ n: note, s: open[key].s, e: ts, v: open[key].v });
+        open[key] = { s: ts, v: vel };
+      } else if (open[key]) {
+        notes.push({ n: note, s: open[key].s, e: ts, v: open[key].v });
+        delete open[key];
+      }
+    }
+    for (var k in open) notes.push({ n: (+k) % 128, s: open[k].s, e: prev + 500, v: open[k].v });
+    return { notes: notes, dropped: dropped };
+  }
+
+  function finishEop(out, meta) {
+    var r = spansToEvents(out.notes, function (ms) { return ms; }, 0, 'EOP 中没有可用的钢琴音符');
+    return {
+      events: r.events,
+      noteCount: r.noteCount,
+      droppedCount: out.dropped,
+      duration: r.duration,
+      title: meta.title,
+      author: meta.author,
+      eopVersion: meta.version,
+      tempo: meta.tempo
+    };
+  }
+
+  function parseEop(buffer) {
+    var raw = new Uint8Array(buffer);
+    if (raw.length < 0x1bc) throw new Error('文件比 EOP 头还短');
+    var decodedHead = eopDecode(raw.subarray(0, 0x1bc));
+    var magic = '';
+    for (var i = 0; i < 13; i++) magic += String.fromCharCode(decodedHead[i]);
+    if (magic !== 'EveryonePiano') throw new Error('不是有效的 EOP 文件（缺少 EveryonePiano 签名）');
+    var dvHead = new DataView(decodedHead.buffer);
+    var version = dvHead.getUint32(0x10, true);
+    var tempo = dvHead.getUint32(0x1c, true);
+    var title = eopText(decodedHead.subarray(0x134, 0x174));
+    var author = eopText(decodedHead.subarray(0x174, 0x1b4));
+
+    var payload = raw;
+    if (version === 200 && raw[raw.length - 1] === 0) payload = raw.subarray(0, raw.length - 1);
+    var decoded = eopDecode(payload);
+    var dv = new DataView(decoded.buffer, decoded.byteOffset, decoded.byteLength);
+    var u8 = decoded;
+
+    var mapping, eventStart;
+    if (version === 200) {
+      var blockCount = dv.getUint32(0x20, true);
+      if (blockCount < 1 || blockCount > 4) throw new Error('v200 blockCount 越界');
+      var mappingStart = 0x1b8 + (blockCount - 1) * 0x184;
+      var recordStart = mappingStart + 28;
+      eventStart = recordStart + 255 * 12 + 28;
+      if (eventStart > decoded.length) throw new Error('v200 映射表越界');
+      var leftVel = dv.getUint32(mappingStart + 12, true);
+      var rightVel = dv.getUint32(mappingStart + 16, true);
+      if (leftVel > 127 || rightVel > 127) throw new Error('v200 力度越界');
+      mapping = {};
+      var velocities = {};
+      for (var r = 0; r < 255; r++) {
+        var off = recordStart + r * 12;
+        var scanCode = dv.getUint32(off, true);
+        var action = dv.getUint32(off + 4, true);
+        var note = dv.getUint32(off + 8, true);
+        if (scanCode !== r + 1) throw new Error('v200 映射表校验失败');
+        if ((action === 0x00000001 || action === 0x00010001) && note <= 127) {
+          mapping[scanCode] = note;
+          velocities[scanCode] = action === 0x00010001 ? leftVel : rightVel;
+        }
+      }
+      var pool = decoded.length - eventStart;
+      if (pool < 16 || pool % 16 !== 0) throw new Error('v200 事件池不合法');
+      var terminator = -1;
+      for (var e = 0; e < pool / 16; e++) {
+        if (u8[eventStart + e * 16 + 8] === 0) { terminator = e; break; }
+      }
+      if (terminator < 0) throw new Error('v200 缺少事件终止符');
+      var out200 = eopParseEvents(dv, u8, eventStart, terminator, mapping, velocities);
+      return finishEop(out200, { version: version, tempo: tempo, title: title, author: author });
+    }
+
+    if (version === 201 || version === 301) {
+      var recordSize = version === 201 ? 42 : 52;
+      var firstSectionSize = dv.getUint32(0x1b8, true);
+      if (firstSectionSize !== 0) {
+        var containerSize = dv.getUint32(0x28, true) || (4 + firstSectionSize);
+        var containerEnd = 0x1b8 + containerSize;
+        if (containerSize < 4 || containerEnd > decoded.length) throw new Error('mapping 容器越界');
+        mapping = eopMergeSections(eopParseLengthPrefixed(dv, u8, 0x1b8, containerEnd, recordSize));
+        eventStart = containerEnd;
+      } else {
+        // v201 零区段变体：mapping 与事件段在文件尾部
+        var mappingContainerSize = dv.getUint32(0x28, true);
+        var eventContainerSize = dv.getUint32(0x2c, true);
+        if (mappingContainerSize < 4 || eventContainerSize < 16 || eventContainerSize % 16 !== 0) throw new Error('零区段布局不合法');
+        var eStart = decoded.length - eventContainerSize;
+        var mStart = eStart - (mappingContainerSize - 4);
+        if (mStart < 0) throw new Error('零区段布局越界');
+        mapping = eopParseV201ZeroSections(dv, u8, mStart, eStart, recordSize);
+        eventStart = eStart;
+      }
+      var poolLen = decoded.length - eventStart;
+      if (poolLen < 32 || poolLen % 16 !== 0) throw new Error('事件区不合法');
+      var count = (poolLen - 16) / 16;
+      if (count > 0) {
+        var st0 = u8[eventStart + 8];
+        if (st0 !== 0x80 && st0 !== 0x90) throw new Error('事件区起点不合法');
+      }
+      var out = eopParseEvents(dv, u8, eventStart, count, mapping, null);
+      return finishEop(out, { version: version, tempo: tempo, title: title, author: author });
+    }
+
+    throw new Error('不支持的 EOP 版本 ' + version);
+  }
+
+  function eopParseV201ZeroSections(dv, u8, start, end, recordSize) {
+    var matches = [];
+    for (var firstSize = 28; firstSize <= end - start; firstSize += recordSize) {
+      try {
+        var first = eopParseKeyMappings(dv, u8, start, firstSize, recordSize);
+        var sections = [first];
+        if (start + firstSize < end) {
+          var rest = eopParseLengthPrefixed(dv, u8, start + firstSize, end, recordSize);
+          sections = sections.concat(rest);
+        }
+        matches.push(eopMergeSections(sections));
+      } catch (e) { /* 尝试下一种切分 */ }
+    }
+    if (matches.length === 0) throw new Error('零区段 mapping 无有效切分');
+    if (matches.length > 1) throw new Error('零区段 mapping 存在多种切分');
+    return matches[0];
+  }
+
+  window.MidiImport = { parse: parse, parseEop: parseEop };
 })();
