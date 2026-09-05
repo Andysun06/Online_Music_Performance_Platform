@@ -288,10 +288,10 @@
 
     particles.push({
       type: 'beam', x: x, y: yTop, w: w, hue: hue,
-      h0: 100 + Math.random() * 80,
-      vx: 0, vy: -50 - Math.random() * 40,
+      h0: 170 + Math.random() * 140,
+      vx: 0, vy: -55 - Math.random() * 45,
       phase: Math.random() * Math.PI * 2,
-      life: 0.85 + Math.random() * 0.3, maxLife: 1.1
+      life: 1.35 + Math.random() * 0.55, maxLife: 1.75
     });
 
     var sparks = Math.round(8 * inten);
@@ -299,10 +299,10 @@
       var isStar = Math.random() < 0.32;
       var base = {
         x: x + (Math.random() - 0.5) * w * 1.8, y: yTop - Math.random() * 14,
-        vx: (Math.random() - 0.5) * 100, vy: -60 - Math.random() * 150,
+        vx: (Math.random() - 0.5) * 100, vy: -70 - Math.random() * 170,
         hue: hue + (Math.random() - 0.5) * 30,
         phase: Math.random() * Math.PI * 2,
-        life: 0.6 + Math.random() * 0.7, maxLife: 1.2
+        life: 0.9 + Math.random() * 0.9, maxLife: 1.6
       };
       if (isStar) {
         particles.push(Object.assign(base, {
@@ -315,8 +315,8 @@
     }
 
     particles.push({
-      type: 'ring', x: x, y: yTop + 4, r0: 3, r1: 38 + Math.random() * 20, hue: hue,
-      life: 0.55, maxLife: 0.55
+      type: 'ring', x: x, y: yTop + 4, r0: 3, r1: 48 + Math.random() * 26, hue: hue,
+      life: 0.7, maxLife: 0.7
     });
 
     // 上升光球（梦境感的主角）
@@ -325,24 +325,24 @@
       particles.push({
         type: 'orb',
         x: x + (Math.random() - 0.5) * w * 2.4, y: yTop - Math.random() * 8,
-        vx: (Math.random() - 0.5) * 12, vy: -26 - Math.random() * 30,
-        size: 26 + Math.random() * 42,
+        vx: (Math.random() - 0.5) * 12, vy: -30 - Math.random() * 34,
+        size: 30 + Math.random() * 50,
         hue: hue + (Math.random() - 0.5) * 36,
         phase: Math.random() * Math.PI * 2,
-        sway: 1.6 + Math.random(), swayAmp: 16 + Math.random() * 20,
-        life: 1.6 + Math.random() * 1.1, maxLife: 2.4
+        sway: 1.4 + Math.random(), swayAmp: 18 + Math.random() * 24,
+        life: 2.4 + Math.random() * 1.5, maxLife: 3.6
       });
     }
 
     if (Math.random() < 0.5 * inten) {
       particles.push({
         type: 'glyph', x: x + (Math.random() - 0.5) * 26, y: yTop - 10,
-        vx: (Math.random() - 0.5) * 22, vy: -42 - Math.random() * 30,
+        vx: (Math.random() - 0.5) * 22, vy: -36 - Math.random() * 28,
         ch: Math.random() < 0.28 ? '♫' : '♪',
         size: 13 + Math.random() * 9, hue: hue,
         phase: Math.random() * Math.PI * 2,
         sway: 5, swayAmp: 22,
-        life: 1.4 + Math.random() * 0.5, maxLife: 1.8
+        life: 1.9 + Math.random() * 0.6, maxLife: 2.3
       });
     }
   }
