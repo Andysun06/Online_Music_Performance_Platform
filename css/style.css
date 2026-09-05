@@ -43,8 +43,11 @@ body {
   -webkit-user-select: none;
 }
 
-#fxBg { position: fixed; inset: 0; z-index: 0; pointer-events: none; }
-#fx   { position: fixed; inset: 0; z-index: 80; pointer-events: none; }
+/* 画布 CSS 尺寸必须锁定为视口大小：内部缓冲是 视口×DPR，
+   若不显式指定 width/height，元素会按缓冲尺寸显示，
+   在高缩放屏上特效整体被放大并偏移到页面右下角 */
+#fxBg { position: fixed; inset: 0; width: 100%; height: 100%; z-index: 0; pointer-events: none; }
+#fx   { position: fixed; inset: 0; width: 100%; height: 100%; z-index: 80; pointer-events: none; }
 
 #app {
   position: relative;
