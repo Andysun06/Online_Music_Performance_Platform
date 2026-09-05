@@ -82,6 +82,12 @@
     pianoEl.classList.toggle('no-notes', !labelMode.notes);
   }
 
+  function setLabelMode(showKeys, showNotes) {
+    labelMode.keys = showKeys;
+    labelMode.notes = showNotes;
+    updateLabels();
+  }
+
   function refreshKeyGlows() {
     keyEls.forEach(function (el, midi) {
       el.style.setProperty('--glow', glowColor(midi, isBlack(midi)));
@@ -230,6 +236,7 @@
     release: release,
     releaseAll: releaseAll,
     clearAllVisual: clearAllVisual,
+    setLabelMode: setLabelMode,
     updateLabels: updateLabels,
     refreshKeyGlows: refreshKeyGlows,
     setKeyboardRange: setKeyboardRange,

@@ -45,7 +45,7 @@
     recToggle: $('recToggle'), recPlay: $('recPlay'), recStop: $('recStop'),
     recClear: $('recClear'), recInfo: $('recInfo'),
     songSelect: $('songSelect'), modeAuto: $('modeAuto'), modeFollow: $('modeFollow'),
-    autoToggle: $('autoToggle'), autoInfo: $('autoInfo'),
+    autoToggle: $('autoToggle'), autoInfo: $('autoInfo'), midiImport: $('midiImport'),
     octaveLabel: $('octaveLabel'),
     welcome: $('welcome'), startBtn: $('startBtn'),
     toast: $('toast')
@@ -108,7 +108,7 @@
     PianoUI.release(midi, 'auto');
   }
 
-  window.App = { noteOn: userNoteOn, noteOff: userNoteOff, toast: toast };
+  window.App = { noteOn: userNoteOn, noteOff: userNoteOff, toast: toast, importMidiData: importMidiData };
 
   /* ---------------- 键盘事件 ---------------- */
 
@@ -394,13 +394,69 @@
     }
   }
 
-  ui.songSelect.innerHTML = '';
-  window.SONGS.forEach(function (s) {
-    var o = document.createElement('option');
-    o.value = s.id;
-    o.textContent = s.name;
-    ui.songSelect.appendChild(o);
+  /* ---------------- 曲目列表与 MIDI 导入 ---------------- */
+
+  var importedSongs = []; // 导入的 MIDI 乐曲
+
+  function allSongs() {
+    return window.SONGS.concat(importedSongs);
+  }
+
+  function fillSongs() {
+    ui.songSelect.innerHTML = '';
+    allSongs().forEach(function (s) {
+      var o = document.createElement('option');
+      o.value = s.id;
+      o.textContent = s.name;
+      ui.songSelect.appendChild(o);
+    });
+  }
+  fillSongs();
+
+  function importMidiData(buffer, filename) {
+    try {
+      var res = window.MidiImport.parse(buffer);
+      var name = filename.replace(/\.(midi?|MIDI?)$/, '');
+      var dup = 1;
+      var id = 'midi-import';
+      while (allSongs().some(function (s) { return s.id === id; })) id = 'midi-import-' + (++dup);
+      importedSongs.push({
+        id: id,
+        name: name + '（导入）',
+        events: res.events,
+        duration: res.duration
+      });
+      fillSongs();
+      ui.songSelect.value = id;
+      var mins = Math.floor(res.duration / 60000), secs = Math.floor(res.duration % 60000 / 1000);
+      toast('已导入《' + name + '》：' + res.noteCount + ' 个音符 · ' + mins + ':' + (secs < 10 ? '0' : '') + secs +
+        (res.octaveShift ? '（已移调 ' + res.octaveShift + ' 个八度）' : '') +
+        '，点击「开始」演奏', true);
+      if (res.droppedCount > 0) {
+        setTimeout(function () { toast('提示：' + res.droppedCount + ' 个超音域音符已省略'); }, 2600);
+      }
+    } catch (err) {
+      console.error(err);
+      toast('MIDI 解析失败：' + err.message);
+    }
+  }
+
+  var midiFileInput = document.createElement('input');
+  midiFileInput.type = 'file';
+  midiFileInput.accept = '.mid,.midi,audio/midi';
+  midiFileInput.style.display = 'none';
+  document.body.appendChild(midiFileInput);
+  midiFileInput.addEventListener('change', function () {
+    var file = midiFileInput.files && midiFileInput.files[0];
+    if (!file) return;
+    var reader = new FileReader();
+    reader.onload = function () {
+      importMidiData(reader.result, file.name);
+      midiFileInput.value = '';
+    };
+    reader.readAsArrayBuffer(file);
   });
+  ui.midiImport.addEventListener('click', function () { midiFileInput.click(); });
 
   ui.modeAuto.addEventListener('click', function () { setAutoMode('auto'); });
   ui.modeFollow.addEventListener('click', function () { setAutoMode('follow'); });
@@ -420,8 +476,9 @@
       return;
     }
     var song = null;
-    for (var i = 0; i < window.SONGS.length; i++) {
-      if (window.SONGS[i].id === ui.songSelect.value) song = window.SONGS[i];
+    var songs = allSongs();
+    for (var i = 0; i < songs.length; i++) {
+      if (songs[i].id === ui.songSelect.value) song = songs[i];
     }
     if (!song) return;
     if (Recorder.recording) Recorder.stop(), refreshRecorderUI();
@@ -482,12 +539,12 @@
 
   ui.showKeys.addEventListener('change', function () {
     settings.showKeys = ui.showKeys.checked;
-    PianoUI.updateLabels();
+    PianoUI.setLabelMode(settings.showKeys, settings.showNotes);
     saveSettings();
   });
   ui.showNotes.addEventListener('change', function () {
     settings.showNotes = ui.showNotes.checked;
-    PianoUI.updateLabels();
+    PianoUI.setLabelMode(settings.showKeys, settings.showNotes);
     saveSettings();
   });
   ui.fxOn.addEventListener('change', function () {
@@ -612,6 +669,7 @@
     // 应用持久化设置
     ui.showKeys.checked = settings.showKeys;
     ui.showNotes.checked = settings.showNotes;
+    PianoUI.setLabelMode(settings.showKeys, settings.showNotes);
     ui.fxOn.checked = settings.fxOn;
     FX.settings.enabled = settings.fxOn;
     ui.fxIntensity.value = settings.fxIntensity;
