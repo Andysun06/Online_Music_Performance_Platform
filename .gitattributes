@@ -1,2 +1,17 @@
 # Auto detect text files and perform LF normalization
 * text=auto
+
+# Windows 批处理必须保持 CRLF，否则 cmd 会解析出错
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# 采样音色为大体积 base64 文本，不做换行归一化
+samples/** -text
+
+# 二进制资源
+*.png binary
+*.jpg binary
+*.ico binary
+*.mp3 binary
+*.ogg binary
+*.wav binary

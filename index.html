@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Resonance · 在线钢琴演奏厅</title>
+<meta name="description" content="在浏览器里演奏钢琴：多音色采样引擎、复音连续、键位自定义、录音回放、自动演奏。纯前端，本地运行。">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='0.9em' font-size='88'%3E%F0%9F%8E%B9%3C/text%3E%3C/svg%3E">
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<!-- 背景氛围层 -->
+<canvas id="fxBg" aria-hidden="true"></canvas>
+
+<div id="app">
+
+  <!-- 顶栏 -->
+  <header id="topbar">
+    <div class="brand">
+      <span class="brand-mark" aria-hidden="true">
+        <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round">
+          <path d="M9 18V6.5"/><path d="M13 18V6.5"/><path d="M9 9h4"/>
+          <circle cx="9" cy="18" r="2.2"/><circle cx="13" cy="18" r="2.2"/>
+          <path d="M4 6.5 9 4l4 2.5 4-2.5 3 2v12l-3 2-4-2.5-4 2.5-3-2z" opacity="0.55"/>
+        </svg>
+      </span>
+      <div class="brand-text">
+        <b>Resonance</b><i>在线钢琴演奏厅</i>
+      </div>
+    </div>
+
+    <div class="top-controls">
+      <label class="ctl ctl-timbre">
+        <span class="ctl-label">音色</span>
+        <select id="timbreSelect" title="切换钢琴音色"></select>
+      </label>
+      <div class="ctl ctl-volume" title="主音量">
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M11 5 6 9H3v6h3l5 4V5z"/><path d="M15.5 8.5a5 5 0 0 1 0 7" opacity=".8"/><path d="M18 6a8.5 8.5 0 0 1 0 12" opacity=".55"/></svg>
+        <input type="range" id="volumeSlider" min="0" max="100" value="80" aria-label="主音量">
+      </div>
+      <button id="btnRecorder" class="top-btn" title="录制 / 回放你的演奏">
+        <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="8.5"/><circle cx="12" cy="12" r="3.4" fill="currentColor" stroke="none"/></svg>
+        <span>录音</span>
+      </button>
+      <button id="btnAutoplay" class="top-btn" title="自动演奏 / 按键跟随（假弹）">
+        <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M7 4.8v14.4l11.5-7.2z"/></svg>
+        <span>自动演奏</span>
+      </button>
+      <button id="btnSettings" class="top-btn" title="设置">
+        <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3.2"/><path d="M12 2.8v2.4M12 18.8v2.4M21.2 12h-2.4M5.2 12H2.8M18.5 5.5l-1.7 1.7M7.2 16.8l-1.7 1.7M18.5 18.5l-1.7-1.7M7.2 7.2 5.5 5.5"/></svg>
+        <span>设置</span>
+      </button>
+    </div>
+  </header>
+
+  <!-- 中部舞台：粒子在这里升起 -->
+  <main id="stage">
+    <div class="stage-glow" aria-hidden="true"></div>
+    <div class="stage-vignette" aria-hidden="true"></div>
+
+    <!-- 功能面板停靠区 -->
+    <section id="panelDock">
+      <div id="recorderPanel" class="panel hidden">
+        <span class="panel-title">
+          <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="4.5" fill="currentColor" stroke="none"/></svg>
+          录音
+        </span>
+        <button id="recToggle" class="panel-btn primary">● 开始录音</button>
+        <button id="recPlay" class="panel-btn" disabled>▶ 播放</button>
+        <button id="recStop" class="panel-btn" disabled>■ 停止</button>
+        <button id="recClear" class="panel-btn subtle" disabled>清空</button>
+        <span id="recInfo" class="panel-info">尚未录音</span>
+      </div>
+
+      <div id="autoPanel" class="panel hidden">
+        <span class="panel-title">
+          <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M7 4.8v14.4l11.5-7.2z"/></svg>
+          自动演奏
+        </span>
+        <select id="songSelect" title="选择乐曲"></select>
+        <div class="seg" role="tablist">
+          <button id="modeAuto" class="seg-btn on" title="按时值自动播放乐曲">自动播放</button>
+          <button id="modeFollow" class="seg-btn" title="随便敲键盘，琴声按你敲击的节奏推进（假弹）">按键跟随</button>
+        </div>
+        <button id="autoToggle" class="panel-btn primary">开 始</button>
+        <span id="autoInfo" class="panel-info">就绪</span>
+      </div>
+    </section>
+  </main>
+
+  <!-- 钢琴 -->
+  <section id="pianoArea">
+    <div id="pianoShell">
+      <div class="wood-top">
+        <span class="plate">Resonance</span>
+        <span class="plate-sub">CONCERT&nbsp;GRAND</span>
+      </div>
+      <div class="felt" aria-hidden="true"></div>
+      <div id="pianoScroll">
+        <div id="piano">
+          <div id="kbRange" aria-hidden="true"></div>
+        </div>
+      </div>
+      <div class="wood-bottom" aria-hidden="true"></div>
+    </div>
+  </section>
+
+  <!-- 底部提示栏 -->
+  <footer id="hintbar">
+    <span class="hint"><kbd>空格</kbd> 延音踏板</span>
+    <span class="hint"><kbd>←</kbd><kbd>→</kbd> 移动八度 <b id="octaveLabel">C3 – B5</b></span>
+    <span class="hint"><kbd>Esc</kbd> 全部停止</span>
+    <span class="hint hint-mouse">鼠标 / 触摸滑过琴键可连奏</span>
+    <span class="footer-right">Web Audio 采样引擎 · 纯本地运行</span>
+  </footer>
+</div>
+
+<!-- 粒子特效层（最上层，不拦截鼠标） -->
+<canvas id="fx" aria-hidden="true"></canvas>
+
+<!-- 设置抽屉 -->
+<aside id="settingsDrawer" aria-hidden="true">
+  <div class="drawer-head">
+    <h2>设置</h2>
+    <button id="settingsClose" class="icon-btn" title="关闭">
+      <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 5l14 14M19 5L5 19"/></svg>
+    </button>
+  </div>
+  <div class="drawer-body">
+
+    <h3 class="drawer-sec">声音</h3>
+    <label class="row">
+      <span>音色</span>
+      <select id="timbreSelect2"></select>
+    </label>
+    <label class="row">
+      <span>主音量 <b id="volVal">80</b></span>
+      <input type="range" id="volumeSlider2" min="0" max="100" value="80">
+    </label>
+    <label class="row">
+      <span>大厅混响 <b id="revVal">25</b></span>
+      <input type="range" id="reverbSlider" min="0" max="100" value="25">
+    </label>
+    <label class="row row-toggle">
+      <span>延音踏板锁定<em>（一直踩着踏板）</em></span>
+      <input type="checkbox" id="sustainLock" class="switch">
+    </label>
+
+    <h3 class="drawer-sec">显示与特效</h3>
+    <label class="row row-toggle">
+      <span>显示键盘按键</span>
+      <input type="checkbox" id="showKeys" class="switch" checked>
+    </label>
+    <label class="row row-toggle">
+      <span>显示音名（C4…）</span>
+      <input type="checkbox" id="showNotes" class="switch">
+    </label>
+    <label class="row row-toggle">
+      <span>按键粒子特效</span>
+      <input type="checkbox" id="fxOn" class="switch" checked>
+    </label>
+    <label class="row">
+      <span>特效强度 <b id="fxVal">100</b>%</span>
+      <input type="range" id="fxIntensity" min="20" max="200" value="100">
+    </label>
+
+    <h3 class="drawer-sec">键位设置</h3>
+    <label class="row">
+      <span>键位方案</span>
+      <select id="presetSelect"></select>
+    </label>
+    <p class="row-desc" id="presetDesc"></p>
+    <p class="row-desc">点击右侧「更换」后按下新按键即可重新绑定；<kbd>←</kbd><kbd>→</kbd> 可整体移动八度。</p>
+    <div id="bindList" class="bind-list"></div>
+    <button id="resetBinds" class="panel-btn subtle full">恢复默认键位</button>
+  </div>
+</aside>
+<div id="drawerMask" aria-hidden="true"></div>
+
+<!-- 开场欢迎 -->
+<div id="welcome">
+  <div class="welcome-card">
+    <div class="w-mark">
+      <svg viewBox="0 0 24 24" width="46" height="46" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round">
+        <path d="M9 18V6.5"/><path d="M13 18V6.5"/><path d="M9 9h4"/>
+        <circle cx="9" cy="18" r="2.2"/><circle cx="13" cy="18" r="2.2"/>
+        <path d="M4 6.5 9 4l4 2.5 4-2.5 3 2v12l-3 2-4-2.5-4 2.5-3-2z" opacity="0.55"/>
+      </svg>
+    </div>
+    <h1>Resonance</h1>
+    <p class="w-sub">· 在线钢琴演奏厅 ·</p>
+    <p class="w-desc">用你的键盘，奏出一座音乐厅。<br>多音色采样 · 真实复音与延音 · 键位自定义 · 录音回放 · 自动演奏</p>
+    <button id="startBtn">开 始 演 奏</button>
+    <p class="w-tip">首次进入会加载钢琴采样（约几 MB），建议佩戴耳机 🎧<br>进入后直接敲键盘即可演奏</p>
+  </div>
+</div>
+
+<div id="toast" aria-live="polite"></div>
+
+<script src="js/soundfont-loader.js"></script>
+<script src="js/audio-engine.js"></script>
+<script src="js/keyboard-map.js"></script>
+<script src="js/effects.js"></script>
+<script src="js/piano-ui.js"></script>
+<script src="js/songs.js"></script>
+<script src="js/sequencer.js"></script>
+<script src="js/main.js"></script>
+</body>
+</html>
